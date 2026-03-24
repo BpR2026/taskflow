@@ -94,9 +94,16 @@ body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--
 
 /* ═══ TABLE VIEW ═══ */
 .table-wrap{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;transition:background .25s,border .25s;}
-.table-header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border);}
-.table-title{font-size:14px;font-weight:600;}
-.table-controls{display:flex;gap:6px;align-items:center;}
+.table-header{display:flex;flex-direction:column;padding:12px 16px;border-bottom:1px solid var(--border);gap:10px;}
+.table-header-top{display:flex;justify-content:space-between;align-items:center;}
+.table-title{font-size:15px;font-weight:700;}
+.table-controls{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;}
+.filter-group{display:flex;flex-direction:column;gap:3px;}
+.filter-group label{font-size:10px;font-weight:600;color:#2d6a4f;text-transform:uppercase;letter-spacing:.5px;}
+.filter-group select{background:var(--input-bg);color:var(--text);}
+.filter-controls-bar{background:#d8f3dc;border-radius:8px;padding:8px 14px;display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;}
+[data-theme="dark"] .filter-controls-bar{background:rgba(52,211,153,.1);}
+[data-theme="dark"] .filter-group label{color:#6ee7b7;}
 .table-controls select{padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:11.5px;background:var(--input-bg);color:var(--text);cursor:pointer;}
 .task-table{width:100%;border-collapse:collapse;}
 .task-table th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);padding:9px 12px;border-bottom:1px solid var(--border);font-weight:500;background:var(--table-header-bg);}
@@ -326,28 +333,39 @@ body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--
     <div id="listView">
       <div class="table-wrap">
         <div class="table-header">
-          <div class="table-title" id="tableTitle">Proiecte active</div>
-          <div class="table-controls">
-            <select id="filterStatus" onchange="onFilterChange()">
-              <option value="all">Toate</option>
-              <option value="active" selected>Active</option>
-              <option value="proposed">Propuse</option>
-              <option value="complete">Finalizate</option>
-              <option value="overdue">Întârziate</option>
-              <option value="cancelled">Anulate</option>
-            </select>
-            <select id="filterResponsabil" onchange="onResponsabilFilterChange()">
-              <option value="all">Toți</option>
-              <option value="andrei.coman">Andrei Coman</option>
-              <option value="adrian.ungureanu">Adrian Ungureanu</option>
-            </select>
-            <select id="sortBy" onchange="onSortChange()">
-              <option value="due">Termen</option>
-              <option value="progress">Progres</option>
-              <option value="priority">Prioritate</option>
-              <option value="name">Nume</option>
-              <option value="budget">Buget</option>
-            </select>
+          <div class="table-header-top">
+            <div class="table-title" id="tableTitle">Proiecte</div>
+          </div>
+          <div class="filter-controls-bar">
+            <div class="filter-group">
+              <label>Status proiect</label>
+              <select id="filterStatus" onchange="onFilterChange()">
+                <option value="all">Toate</option>
+                <option value="active" selected>Active</option>
+                <option value="proposed">Propuse</option>
+                <option value="complete">Finalizate</option>
+                <option value="overdue">Întârziate</option>
+                <option value="cancelled">Anulate</option>
+              </select>
+            </div>
+            <div class="filter-group">
+              <label>Responsabil</label>
+              <select id="filterResponsabil" onchange="onResponsabilFilterChange()">
+                <option value="all">Toți</option>
+                <option value="andrei.coman">Andrei Coman</option>
+                <option value="adrian.ungureanu">Adrian Ungureanu</option>
+              </select>
+            </div>
+            <div class="filter-group">
+              <label>Sortare</label>
+              <select id="sortBy" onchange="onSortChange()">
+                <option value="due">Termen</option>
+                <option value="progress">Progres</option>
+                <option value="priority">Prioritate</option>
+                <option value="name">Nume</option>
+                <option value="budget">Buget</option>
+              </select>
+            </div>
           </div>
         </div>
         <table class="task-table">
@@ -852,8 +870,7 @@ function renderStats(){
 }
 
 function renderTable(){
-  const titleMap={all:'Toate proiectele',active:'Proiecte active',complete:'Proiecte finalizate',overdue:'Proiecte întârziate',pending:'Proiecte planificate',proposed:'Proiecte propuse',cancelled:'Proiecte anulate'};
-  document.getElementById('tableTitle').textContent=titleMap[currentStatusFilter]||'Proiecte active';
+  document.getElementById('tableTitle').textContent='Proiecte';
   const filtered=getFiltered();
   const tbody=document.getElementById('taskBody');
   const empty=document.getElementById('emptyState');
