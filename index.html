@@ -761,6 +761,7 @@ function getStatus(t){
   if(t.status==='cancelled')return 'cancelled';
   if(t.status==='proposed')return 'proposed';
   if(t.status==='complete')return 'complete';
+  if(t.subtasks&&t.subtasks.length&&t.subtasks.every(s=>s.done))return 'complete';
   if(t.due&&t.due<today&&t.status!=='complete'&&t.status!=='cancelled'&&t.status!=='proposed')return 'overdue';
   return t.status||'active';
 }
