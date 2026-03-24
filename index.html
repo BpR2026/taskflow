@@ -336,6 +336,11 @@ body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--
               <option value="overdue">Întârziate</option>
               <option value="cancelled">Anulate</option>
             </select>
+            <select id="filterResponsabil" onchange="onResponsabilFilterChange()">
+              <option value="all">Toți</option>
+              <option value="andrei.coman">Andrei Coman</option>
+              <option value="adrian.ungureanu">Adrian Ungureanu</option>
+            </select>
             <select id="sortBy" onchange="onSortChange()">
               <option value="due">Termen</option>
               <option value="progress">Progres</option>
@@ -490,7 +495,8 @@ function save(k,v){localStorage.setItem(k,JSON.stringify(v));}
 let tasks=load(TASKS_KEY,[]);
 let emailAddrs=load(EMAIL_KEY,[]);
 let currentView='dashboard', currentFilter=null, currentStatusFilter='active', currentSort='due', searchQuery='', calYear, calMonth;
-let tokenClient, currentUser=null, teamMembers=[];
+let tokenClient, currentUser=null, teamMembers=[], currentResponsabilFilter='all';
+const DEFAULT_MEMBERS=[{email:'andrei.coman',name:'Andrei Coman',picture:''},{email:'adrian.ungureanu',name:'Adrian Ungureanu',picture:''}];
 let gapiInited=false, gisInited=false;
 
 function genId(){return '_'+Math.random().toString(36).substr(2,9);}
@@ -703,12 +709,20 @@ async function registerUser(){
   }catch(e){console.error('Register user error:',e);}
 }
 
+function getAllMembers(){
+  const merged=[...DEFAULT_MEMBERS];
+  teamMembers.forEach(m=>{if(!merged.find(d=>d.email===m.email))merged.push(m);});
+  return merged;
+}
 function updateResponsabilOptions(){
+  const all=getAllMembers();
   const sel=document.getElementById('taskResponsabil');
   sel.innerHTML='<option value="">— Neatribuit —</option>';
-  teamMembers.forEach(m=>{
-    sel.innerHTML+=`<option value="${m.email}">${m.name||m.email}</option>`;
-  });
+  all.forEach(m=>{sel.innerHTML+=`<option value="${m.email}">${m.name||m.email}</option>`;});
+  const fSel=document.getElementById('filterResponsabil');
+  if(fSel){const cur=fSel.value;fSel.innerHTML='<option value="all">Toți</option>';
+    all.forEach(m=>{fSel.innerHTML+=`<option value="${m.email}">${m.name||m.email}</option>`;});
+    fSel.value=cur||'all';}
 }
 
 function updateUserDisplay(){
@@ -813,6 +827,7 @@ function getFiltered(){
   let list=tasks.map(t=>({...t,cs:getStatus(t),progress:getProgress(t)}));
   if(currentFilter)list=list.filter(t=>t.category===currentFilter);
   if(currentStatusFilter!=='all')list=list.filter(t=>t.cs===currentStatusFilter);
+  if(currentResponsabilFilter!=='all')list=list.filter(t=>(t.responsabil||'')===currentResponsabilFilter);
   if(searchQuery){const q=searchQuery.toLowerCase();list=list.filter(t=>(t.name+' '+t.desc).toLowerCase().includes(q));}
   list.sort((a,b)=>{
     if(currentSort==='due')return(a.due||'9999').localeCompare(b.due||'9999');
@@ -860,7 +875,7 @@ function renderTable(){
       <td class="${dateCls}">${fmtDate(t.due)}${t.cs==='overdue'?' ⚠️':du<=3&&du>=0&&t.cs!=='complete'?' ⏳':''}</td>
       <td><div class="progress-wrap"><div class="progress-bar"><div class="progress-fill" style="width:${t.progress}%;background:${pc}"></div></div><span class="progress-pct" style="color:${pc}">${t.progress}%</span></div></td>
       <td class="budget-cell">${fmtBudget(t.budget)}</td>
-      <td style="font-size:12px;">${t.responsabil?teamMembers.find(m=>m.email===t.responsabil)?.name||t.responsabil:'—'}</td>
+      <td style="font-size:12px;">${t.responsabil?getAllMembers().find(m=>m.email===t.responsabil)?.name||t.responsabil:'—'}</td>
       <td>${statusBadge(t.cs)}${t.cs==='proposed'?`<div class="proposed-actions"><button class="btn btn-sm" style="background:#10b981;color:#fff;border:none;margin-right:4px;" onclick="acceptProject(event,'${t.id}')">✓ Acceptă</button><button class="btn btn-sm" style="background:var(--danger);color:#fff;border:none;" onclick="rejectProject(event,'${t.id}')">✗ Respinge</button></div>`:''}</td>
       <td style="text-align:right"><button class="btn-icon" onclick="editTask(event,'${t.id}')" title="Editează">✏️</button></td>
     </tr>
@@ -982,6 +997,7 @@ function filterCategory(cat,el){
   render();
 }
 function onFilterChange(){currentStatusFilter=document.getElementById('filterStatus').value;render();}
+function onResponsabilFilterChange(){currentResponsabilFilter=document.getElementById('filterResponsabil').value;render();}
 function onSortChange(){currentSort=document.getElementById('sortBy').value;render();}
 function onSearch(){searchQuery=document.getElementById('searchInput').value;render();}
 
@@ -1414,6 +1430,7 @@ setInterval(async()=>{
 },30000);
 
 // Render initial state (from cache)
+updateResponsabilOptions();
 render();
 </script>
 </body>
