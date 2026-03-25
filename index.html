@@ -553,7 +553,8 @@ _realGisLoaded=function(){
   tokenClient=google.accounts.oauth2.initTokenClient({
     client_id:CLIENT_ID,
     scope:SCOPES,
-    callback:onTokenResponse
+    callback:onTokenResponse,
+    error_callback:function(err){console.error('GIS auth error:',err);alert('Eroare autentificare Google: '+(err.type||err.message||JSON.stringify(err)));}
   });
   gisInited=true;
   maybeEnableLogin();
@@ -569,7 +570,14 @@ function maybeEnableLogin(){
 }
 
 function handleGoogleLogin(){
-  tokenClient.requestAccessToken({prompt:'consent'});
+  console.log('handleGoogleLogin called, tokenClient:', !!tokenClient, 'gapiInited:', gapiInited, 'gisInited:', gisInited);
+  try{
+    tokenClient.requestAccessToken({prompt:'consent'});
+    console.log('requestAccessToken called successfully');
+  }catch(e){
+    console.error('requestAccessToken error:', e);
+    alert('Eroare la login: '+e.message);
+  }
 }
 
 async function onTokenResponse(resp){
