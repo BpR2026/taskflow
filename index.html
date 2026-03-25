@@ -554,7 +554,15 @@ _realGisLoaded=function(){
     client_id:CLIENT_ID,
     scope:SCOPES,
     callback:onTokenResponse,
-    error_callback:function(err){console.error('GIS auth error:',err);alert('Eroare autentificare Google: '+(err.type||err.message||JSON.stringify(err)));}
+    error_callback:function(err){
+      console.error('GIS auth error:',err);
+      // If popup_failed_to_open, show helpful message
+      if(err.type==='popup_failed_to_open'||err.type==='popup_closed'){
+        alert('Popup-ul Google a fost blocat de browser.\nÎncearcă din nou — dacă vezi un icon de popup blocat în bara de adrese, permite popup-urile pentru acest site.');
+      } else {
+        alert('Eroare autentificare Google: '+(err.type||err.message||JSON.stringify(err)));
+      }
+    }
   });
   gisInited=true;
   maybeEnableLogin();
@@ -570,25 +578,20 @@ function maybeEnableLogin(){
 }
 
 function handleGoogleLogin(){
-  console.log('handleGoogleLogin called, tokenClient:', !!tokenClient, 'gapiInited:', gapiInited, 'gisInited:', gisInited);
-  try{
-    tokenClient.requestAccessToken({prompt:'consent'});
-    console.log('requestAccessToken called successfully');
-  }catch(e){
-    console.error('requestAccessToken error:', e);
-    alert('Eroare la login: '+e.message);
-  }
+  // Use redirect flow instead of popup — more reliable across all browsers
+  const redirectUri=window.location.origin+window.location.pathname;
+  const authUrl='https://accounts.google.com/o/oauth2/v2/auth?'+new URLSearchParams({
+    client_id:CLIENT_ID,
+    redirect_uri:redirectUri,
+    response_type:'token',
+    scope:SCOPES+' https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
+    include_granted_scopes:'true',
+    prompt:'consent'
+  }).toString();
+  window.location.href=authUrl;
 }
 
 async function onTokenResponse(resp){
-  // If this is a silent refresh, resolve the promise and return
-  if(_isRefreshing){
-    _isRefreshing=false;
-    if(resp.error){if(_refreshReject)_refreshReject(resp.error);}
-    else{if(_refreshResolve)_refreshResolve(resp);}
-    _refreshResolve=null;_refreshReject=null;
-    return;
-  }
   if(resp.error)return;
   const userInfo=await fetch('https://www.googleapis.com/oauth2/v3/userinfo',{
     headers:{'Authorization':'Bearer '+gapi.client.getToken().access_token}
@@ -612,18 +615,20 @@ function handleLogout(){
 // ═══════════════════════════════════════
 //  TOKEN REFRESH
 // ═══════════════════════════════════════
-let _refreshResolve=null, _refreshReject=null, _isRefreshing=false, _refreshPromise=null;
-
 function refreshToken(){
-  if(_isRefreshing)return _refreshPromise;
-  _isRefreshing=true;
-  _refreshPromise=new Promise((resolve,reject)=>{
-    _refreshResolve=resolve;
-    _refreshReject=reject;
-    try{tokenClient.requestAccessToken({prompt:''});}
-    catch(e){_isRefreshing=false;reject(e);}
-  });
-  return _refreshPromise;
+  // Token expired — redirect to Google for re-auth
+  const redirectUri=window.location.origin+window.location.pathname;
+  const authUrl='https://accounts.google.com/o/oauth2/v2/auth?'+new URLSearchParams({
+    client_id:CLIENT_ID,
+    redirect_uri:redirectUri,
+    response_type:'token',
+    scope:SCOPES+' https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
+    include_granted_scopes:'true',
+    prompt:'none',
+    login_hint:currentUser?currentUser.email:''
+  }).toString();
+  window.location.href=authUrl;
+  return new Promise(()=>{}); // Never resolves — page will redirect
 }
 
 async function withAutoRefresh(fn){
@@ -1505,6 +1510,40 @@ setInterval(async()=>{
     render();
   }
 },30000);
+
+// ═══ Check for OAuth redirect token ═══
+(async function checkRedirectToken(){
+  if(window.location.hash&&window.location.hash.includes('access_token')){
+    const params=new URLSearchParams(window.location.hash.substring(1));
+    const accessToken=params.get('access_token');
+    if(accessToken){
+      // Clean URL
+      history.replaceState(null,'',window.location.pathname);
+      // Wait for GAPI to be ready
+      const waitForGapi=()=>new Promise(resolve=>{
+        if(gapiInited)return resolve();
+        const check=setInterval(()=>{if(gapiInited){clearInterval(check);resolve();}},100);
+        setTimeout(()=>{clearInterval(check);resolve();},10000);
+      });
+      await waitForGapi();
+      // Set token in GAPI
+      gapi.client.setToken({access_token:accessToken});
+      // Get user info
+      try{
+        const userInfo=await fetch('https://www.googleapis.com/oauth2/v3/userinfo',{
+          headers:{'Authorization':'Bearer '+accessToken}
+        }).then(r=>r.json());
+        currentUser={email:userInfo.email,name:userInfo.name,picture:userInfo.picture};
+        await initSheets();
+        await loadFromSheets();
+        await registerUser();
+        document.getElementById('loginOverlay').style.display='none';
+        updateUserDisplay();
+        render();
+      }catch(e){console.error('Redirect login error:',e);alert('Eroare la autentificare: '+e.message);}
+    }
+  }
+})();
 
 // Render initial state (from cache)
 updateResponsabilOptions();
