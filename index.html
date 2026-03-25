@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Bucate pe Roate — Task Organizer</title>
+<script>
+// Early stubs — filled in by main script, but must exist before Google libs load
+var _gapiReady=false, _gisReady=false;
+function gapiLoaded(){if(typeof _realGapiLoaded==='function')_realGapiLoaded();else _gapiReady=true;}
+function gisLoaded(){if(typeof _realGisLoaded==='function')_realGisLoaded();else _gisReady=true;}
+</script>
 <script src="https://accounts.google.com/gsi/client" async defer onload="gisLoaded()"></script>
 <script src="https://apis.google.com/js/api.js" async defer onload="gapiLoaded()"></script>
 <style>
@@ -535,15 +541,15 @@ const todayDate=new Date(today+'T00:00:00');
 // ═══════════════════════════════════════
 //  GOOGLE API INITIALIZATION
 // ═══════════════════════════════════════
-function gapiLoaded(){
+_realGapiLoaded=function(){
   gapi.load('client',async()=>{
     await gapi.client.init({discoveryDocs:['https://sheets.googleapis.com/$discovery/rest?version=v4']});
     gapiInited=true;
     maybeEnableLogin();
   });
-}
+};
 
-function gisLoaded(){
+_realGisLoaded=function(){
   tokenClient=google.accounts.oauth2.initTokenClient({
     client_id:CLIENT_ID,
     scope:SCOPES,
@@ -551,7 +557,10 @@ function gisLoaded(){
   });
   gisInited=true;
   maybeEnableLogin();
-}
+};
+// If Google libs loaded before this script ran, call them now
+if(_gapiReady)_realGapiLoaded();
+if(_gisReady)_realGisLoaded();
 
 function maybeEnableLogin(){
   if(gapiInited&&gisInited){
