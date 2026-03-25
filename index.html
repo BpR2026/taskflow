@@ -595,7 +595,7 @@ function handleLogout(){
 // ═══════════════════════════════════════
 //  TOKEN REFRESH
 // ═══════════════════════════════════════
-let _refreshResolve=null, _refreshReject=null, _isRefreshing=false;
+let _refreshResolve=null, _refreshReject=null, _isRefreshing=false, _refreshPromise=null;
 
 function refreshToken(){
   if(_isRefreshing)return _refreshPromise;
@@ -608,7 +608,6 @@ function refreshToken(){
   });
   return _refreshPromise;
 }
-let _refreshPromise=null;
 
 async function withAutoRefresh(fn){
   try{return await fn();}catch(e){
