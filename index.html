@@ -564,6 +564,14 @@ function handleGoogleLogin(){
 }
 
 async function onTokenResponse(resp){
+  // If this is a silent refresh, resolve the promise and return
+  if(_isRefreshing){
+    _isRefreshing=false;
+    if(resp.error){if(_refreshReject)_refreshReject(resp.error);}
+    else{if(_refreshResolve)_refreshResolve(resp);}
+    _refreshResolve=null;_refreshReject=null;
+    return;
+  }
   if(resp.error)return;
   const userInfo=await fetch('https://www.googleapis.com/oauth2/v3/userinfo',{
     headers:{'Authorization':'Bearer '+gapi.client.getToken().access_token}
@@ -582,6 +590,34 @@ function handleLogout(){
   document.getElementById('loginOverlay').style.display='flex';
   document.getElementById('logoutBtn').style.display='none';
   document.getElementById('userDisplay').style.display='none';
+}
+
+// ═══════════════════════════════════════
+//  TOKEN REFRESH
+// ═══════════════════════════════════════
+let _refreshResolve=null, _refreshReject=null, _isRefreshing=false;
+
+function refreshToken(){
+  if(_isRefreshing)return _refreshPromise;
+  _isRefreshing=true;
+  _refreshPromise=new Promise((resolve,reject)=>{
+    _refreshResolve=resolve;
+    _refreshReject=reject;
+    try{tokenClient.requestAccessToken({prompt:''});}
+    catch(e){_isRefreshing=false;reject(e);}
+  });
+  return _refreshPromise;
+}
+let _refreshPromise=null;
+
+async function withAutoRefresh(fn){
+  try{return await fn();}catch(e){
+    const code=e?.result?.error?.code||e?.status;
+    if(code===401||code===403){
+      try{await refreshToken();return await fn();}catch(e2){throw e2;}
+    }
+    throw e;
+  }
 }
 
 // ═══════════════════════════════════════
@@ -637,27 +673,29 @@ async function initSheets(){
 
 async function loadFromSheets(){
   try{
-    const resp=await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId:SPREADSHEET_ID,
-      range:SHEET_TASKS+'!A2:P9999'
+    await withAutoRefresh(async()=>{
+      const resp=await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId:SPREADSHEET_ID,
+        range:SHEET_TASKS+'!A2:P9999'
+      });
+      const rows=resp.result.values||[];
+      tasks=rows.map(r=>({
+        id:r[0],name:r[1],desc:r[2]||'',start:r[3]||'',due:r[4]||'',
+        category:r[5]||'Altele',priority:r[6]||'normal',budget:parseFloat(r[7])||0,
+        status:r[8]||'active',responsabil:r[9]||'',
+        subtasks:r[10]?JSON.parse(r[10]):[],
+        notes:r[11]?JSON.parse(r[11]):[],
+        created_by:r[12]||'',created_at:r[13]||'',updated_at:r[14]||'',
+        comments:r[15]||''
+      }));
+      save(TASKS_KEY,tasks);
+      const usersResp=await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId:SPREADSHEET_ID,
+        range:SHEET_USERS+'!A2:D9999'
+      });
+      teamMembers=(usersResp.result.values||[]).map(r=>({email:r[0],name:r[1],picture:r[2]||''}));
+      updateResponsabilOptions();
     });
-    const rows=resp.result.values||[];
-    tasks=rows.map(r=>({
-      id:r[0],name:r[1],desc:r[2]||'',start:r[3]||'',due:r[4]||'',
-      category:r[5]||'Altele',priority:r[6]||'normal',budget:parseFloat(r[7])||0,
-      status:r[8]||'active',responsabil:r[9]||'',
-      subtasks:r[10]?JSON.parse(r[10]):[],
-      notes:r[11]?JSON.parse(r[11]):[],
-      created_by:r[12]||'',created_at:r[13]||'',updated_at:r[14]||'',
-      comments:r[15]||''
-    }));
-    save(TASKS_KEY,tasks);
-    const usersResp=await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId:SPREADSHEET_ID,
-      range:SHEET_USERS+'!A2:D9999'
-    });
-    teamMembers=(usersResp.result.values||[]).map(r=>({email:r[0],name:r[1],picture:r[2]||''}));
-    updateResponsabilOptions();
   }catch(e){console.error('Load error:',e);tasks=load(TASKS_KEY,[]);}
 }
 
@@ -671,18 +709,20 @@ async function saveToSheets(){
       t.created_by||'',t.created_at||'',t.updated_at||'',
       t.comments||''
     ]);
-    await gapi.client.sheets.spreadsheets.values.clear({
-      spreadsheetId:SPREADSHEET_ID,
-      range:SHEET_TASKS+'!A2:P9999'
-    });
-    if(rows.length){
-      await gapi.client.sheets.spreadsheets.values.update({
+    await withAutoRefresh(async()=>{
+      await gapi.client.sheets.spreadsheets.values.clear({
         spreadsheetId:SPREADSHEET_ID,
-        range:SHEET_TASKS+'!A2',
-        valueInputOption:'RAW',
-        resource:{values:rows}
+        range:SHEET_TASKS+'!A2:P9999'
       });
-    }
+      if(rows.length){
+        await gapi.client.sheets.spreadsheets.values.update({
+          spreadsheetId:SPREADSHEET_ID,
+          range:SHEET_TASKS+'!A2',
+          valueInputOption:'RAW',
+          resource:{values:rows}
+        });
+      }
+    });
   }catch(e){console.error('Save error:',e);alert('Eroare la salvare în Google Sheets. Datele sunt salvate local.');}
   save(TASKS_KEY,tasks);
 }
@@ -690,11 +730,13 @@ async function saveToSheets(){
 async function logChange(action,projectName,details){
   if(!currentUser)return;
   try{
-    await gapi.client.sheets.spreadsheets.values.append({
-      spreadsheetId:SPREADSHEET_ID,
-      range:SHEET_LOG+'!A:E',
-      valueInputOption:'RAW',
-      resource:{values:[[new Date().toISOString(),currentUser.name||currentUser.email,action,projectName,details||'']]}
+    await withAutoRefresh(async()=>{
+      await gapi.client.sheets.spreadsheets.values.append({
+        spreadsheetId:SPREADSHEET_ID,
+        range:SHEET_LOG+'!A:E',
+        valueInputOption:'RAW',
+        resource:{values:[[new Date().toISOString(),currentUser.name||currentUser.email,action,projectName,details||'']]}
+      });
     });
   }catch(e){console.error('Log error:',e);}
 }
@@ -702,28 +744,30 @@ async function logChange(action,projectName,details){
 async function registerUser(){
   if(!currentUser)return;
   try{
-    const resp=await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId:SPREADSHEET_ID,
-      range:SHEET_USERS+'!A2:A9999'
+    await withAutoRefresh(async()=>{
+      const resp=await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId:SPREADSHEET_ID,
+        range:SHEET_USERS+'!A2:A9999'
+      });
+      const emails=(resp.result.values||[]).map(r=>r[0]);
+      const idx=emails.indexOf(currentUser.email);
+      const row=[currentUser.email,currentUser.name,currentUser.picture||'',new Date().toISOString()];
+      if(idx>=0){
+        await gapi.client.sheets.spreadsheets.values.update({
+          spreadsheetId:SPREADSHEET_ID,
+          range:`${SHEET_USERS}!A${idx+2}:D${idx+2}`,
+          valueInputOption:'RAW',
+          resource:{values:[row]}
+        });
+      }else{
+        await gapi.client.sheets.spreadsheets.values.append({
+          spreadsheetId:SPREADSHEET_ID,
+          range:SHEET_USERS+'!A:D',
+          valueInputOption:'RAW',
+          resource:{values:[row]}
+        });
+      }
     });
-    const emails=(resp.result.values||[]).map(r=>r[0]);
-    const idx=emails.indexOf(currentUser.email);
-    const row=[currentUser.email,currentUser.name,currentUser.picture||'',new Date().toISOString()];
-    if(idx>=0){
-      await gapi.client.sheets.spreadsheets.values.update({
-        spreadsheetId:SPREADSHEET_ID,
-        range:`${SHEET_USERS}!A${idx+2}:D${idx+2}`,
-        valueInputOption:'RAW',
-        resource:{values:[row]}
-      });
-    }else{
-      await gapi.client.sheets.spreadsheets.values.append({
-        spreadsheetId:SPREADSHEET_ID,
-        range:SHEET_USERS+'!A:D',
-        valueInputOption:'RAW',
-        resource:{values:[row]}
-      });
-    }
   }catch(e){console.error('Register user error:',e);}
 }
 
