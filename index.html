@@ -1511,29 +1511,74 @@ setInterval(async()=>{
   }
 },30000);
 
-// ═══ Check for OAuth redirect token ═══
+// ═══ Session persistence + OAuth redirect token handling ═══
+const AUTH_STORAGE_KEY='bpr_auth_session';
+
+function saveAuthSession(accessToken,expiresIn,user){
+  const expiresAt=Date.now()+((Number(expiresIn)||3600)*1000)-60000; // -60s safety margin
+  save(AUTH_STORAGE_KEY,{access_token:accessToken,expires_at:expiresAt,user});
+}
+function loadAuthSession(){
+  const s=load(AUTH_STORAGE_KEY,null);
+  if(!s||!s.access_token||!s.expires_at)return null;
+  if(s.expires_at<=Date.now())return null;
+  return s;
+}
+function clearAuthSession(){localStorage.removeItem(AUTH_STORAGE_KEY);}
+
+// Override logout to also clear the stored session
+const _origHandleLogout=handleLogout;
+handleLogout=function(){
+  clearAuthSession();
+  try{_origHandleLogout();}catch(e){console.error(e);}
+};
+
+async function restoreSessionFromToken(accessToken,user){
+  const waitForGapi=()=>new Promise(resolve=>{
+    if(gapiInited)return resolve();
+    const check=setInterval(()=>{if(gapiInited){clearInterval(check);resolve();}},100);
+    setTimeout(()=>{clearInterval(check);resolve();},10000);
+  });
+  await waitForGapi();
+  gapi.client.setToken({access_token:accessToken});
+  currentUser=user;
+  try{
+    await initSheets();
+    await loadFromSheets();
+    await registerUser();
+    document.getElementById('loginOverlay').style.display='none';
+    updateUserDisplay();
+    render();
+    return true;
+  }catch(e){
+    console.error('Session restore failed:',e);
+    // Token may actually be invalid — clear and fall through to login
+    clearAuthSession();
+    return false;
+  }
+}
+
 (async function checkRedirectToken(){
+  // 1) If we just came back from a Google OAuth redirect, consume the hash
   if(window.location.hash&&window.location.hash.includes('access_token')){
     const params=new URLSearchParams(window.location.hash.substring(1));
     const accessToken=params.get('access_token');
+    const expiresIn=params.get('expires_in');
     if(accessToken){
-      // Clean URL
       history.replaceState(null,'',window.location.pathname);
-      // Wait for GAPI to be ready
       const waitForGapi=()=>new Promise(resolve=>{
         if(gapiInited)return resolve();
         const check=setInterval(()=>{if(gapiInited){clearInterval(check);resolve();}},100);
         setTimeout(()=>{clearInterval(check);resolve();},10000);
       });
       await waitForGapi();
-      // Set token in GAPI
       gapi.client.setToken({access_token:accessToken});
-      // Get user info
       try{
         const userInfo=await fetch('https://www.googleapis.com/oauth2/v3/userinfo',{
           headers:{'Authorization':'Bearer '+accessToken}
         }).then(r=>r.json());
         currentUser={email:userInfo.email,name:userInfo.name,picture:userInfo.picture};
+        saveAuthSession(accessToken,expiresIn,currentUser);
         await initSheets();
         await loadFromSheets();
         await registerUser();
@@ -1541,7 +1586,13 @@ setInterval(async()=>{
         updateUserDisplay();
         render();
       }catch(e){console.error('Redirect login error:',e);alert('Eroare la autentificare: '+e.message);}
+      return;
     }
+  }
+  // 2) Otherwise, try to restore a still-valid token from localStorage
+  const stored=loadAuthSession();
+  if(stored){
+    await restoreSessionFromToken(stored.access_token,stored.user);
   }
 })();
 
